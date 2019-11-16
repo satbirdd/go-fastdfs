@@ -3257,17 +3257,36 @@ func (this *Server) Search(w http.ResponseWriter, r *http.Request) {
 		result    JsonResult
 		err       error
 		kw        string
+		from      string
+		limit     int = 100
 		count     int
 		fileInfos []FileInfo
 		md5s      []string
+		iterange  *util.Range
 	)
 	kw = r.FormValue("kw")
+	from = r.FormValue("from")
+	limitStr := r.FormValue("limit")
+
+	if limitStr != "" {
+		l, err := strconv.Atoi(limitStr)
+		if err == nil && l > 0 {
+			limit = l
+		}
+	}
+
 	if !this.IsPeer(r) {
 		result.Message = this.GetClusterNotPermitMessage(r)
 		w.Write([]byte(this.util.JsonEncodePretty(result)))
 		return
 	}
-	iter := this.ldb.NewIterator(nil, nil)
+
+	if from != "" {
+		iterange = &util.Range{
+			Start: []byte(from),
+		}
+	}
+	iter := this.ldb.NewIterator(iterange, nil)
 	for iter.Next() {
 		var fileInfo FileInfo
 		value := iter.Value()
@@ -3275,12 +3294,17 @@ func (this *Server) Search(w http.ResponseWriter, r *http.Request) {
 			log.Error(err)
 			continue
 		}
+
+		// fmt.Printf("[Info]fileinfo key: %s, value: %+v\n", iter.Key(), fileInfo)
 		if strings.Contains(fileInfo.Name, kw) && !this.util.Contains(fileInfo.Md5, md5s) {
-			count = count + 1
-			fileInfos = append(fileInfos, fileInfo)
-			md5s = append(md5s, fileInfo.Md5)
+			// eliminate from
+			if fileInfo.Md5 != from {
+				count = count + 1
+				fileInfos = append(fileInfos, fileInfo)
+				md5s = append(md5s, fileInfo.Md5)
+			}
 		}
-		if count >= 100 {
+		if count >= limit {
 			break
 		}
 	}
